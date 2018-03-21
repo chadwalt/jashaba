@@ -1,0 +1,76 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/repo
+    docker:
+      - image: circleci/php:7.1.9-browsers
+        environment:
+          APP_ENV: testing
+          APP_DEBUG: true
+          APP_KEY: SomeRandomKey!!!
+          APP_TIMEZONE: UTC
+          APP_LOCALE: en
+          APP_FALLBACK_LOCALE: en
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_DATABASE: jashaba-test
+          DB_USERNAME: postgres
+          DB_PASSWORD: ''
+      - image: circleci/postgres:9.6
+        environment:
+          POSTGRES_USER: ubuntu
+          POSTGRES_DB: circle_test
+      - image: redis
+    steps:
+      - run:
+          name: Install PHP Extensions
+          command: |
+            sudo apt install -y libsqlite3-dev zlib1g-dev
+            sudo docker-php-ext-install zip
+            sudo apt-get update
+            sudo apt-get remove libpq5
+            sudo apt-get install -y libpq-dev
+            sudo docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql
+            sudo docker-php-ext-install pdo pdo_pgsql pgsql
+      - run:
+          name: Install Composer
+          command: curl -sS https://getcomposer.org/installer | sudo php  -- --install-dir=/usr/local/bin --filename=composer
+          command: sudo composer self-update
+      - checkout
+      - restore_cache:
+          keys:
+            - composer-cache-{{ checksum "composer.json" }}
+            - composer-cache-
+      - run:
+          name: Composer Install Dependencies
+          command: composer install --prefer-dist --no-interaction
+      - save_cache:
+          key: composer-cache-{{ checksum "composer.json" }}
+          paths:
+            - vendor
+      - run:
+          name: Setup Code Climate test-reporter
+          command: |
+            curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+            chmod +x ./cc-test-reporter
+      - run:
+          name: Generate keys and clear config clear
+          command: php artisan key:generate
+          command: php artisan config:clear
+      - run:
+          name: Run Tests
+          # command: ./vendor/bin/phpunit
+          command: |
+            sudo docker-php-ext-enable xdebug
+            ./cc-test-reporter before-build
+            ./vendor/bin/phpunit --coverage-clover clover.xml
+            ./cc-test-reporter after-build --id $CODECLIMATE_REPO_TOKEN --coverage-input-type clover --exit-code $?
+
+      # - run:
+      #     name: Test Coverage Reporter
+      #     command: |
+      #       sudo docker-php-ext-enable xdebug
+      #       ./cc-test-reporter before-build
+      #       sudo vendor/bin/phpunit --coverage-clover clover.xml
+      #       ./cc-test-reporter after-build --coverage-input-type clover --exit-code $?
+
